@@ -34,6 +34,7 @@ from gi.repository import Gdk, Pango
 
 # Import globals
 from autostart import is_flatpak
+from loguru import logger as log
 import globals as gl
 
 
@@ -353,16 +354,18 @@ def sort_times(time_list):
     """
     return sorted(time_list, key=lambda x: datetime.fromisoformat(x))
 
-
-def run_command(command):
+def run_command(command: str):
     if command is None:
         return
 
+    argv = command.split(" ")
     if is_flatpak():
-        command = "flatpak-spawn --host " + command
-
-    subprocess.Popen(command, shell=True, start_new_session=True, stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=os.path.expanduser("~"))
+        argv = ["flatpak-spawn", "--host"] + argv
+    try:
+        subprocess.Popen(argv, start_new_session=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=os.path.expanduser("~"))
+    except (FileNotFoundError, OSError) as e:
+        log.error(f"Failed to run command {" ".join(argv)}: {e}")
 
 def open_web(url):
     if not url.startswith("http"):
