@@ -1,4 +1,3 @@
-
 """
 Author: Core447
 Year: 2024
@@ -50,13 +49,14 @@ import globals as gl
 # Import typing
 from typing import TYPE_CHECKING
 
-from src.backend.PluginManager.PluginSettings.Asset import Color,Icon
+from src.backend.PluginManager.PluginSettings.Asset import Color, Icon
 
 if TYPE_CHECKING:
     from src.backend.PluginManager.PluginBase import PluginBase
     from src.backend.DeckManagement.DeckController import DeckController, ControllerKey, ControllerKeyState
     from src.backend.PageManagement.Page import Page
     from src.backend.DeckManagement.DeckController import ControllerInput, ControllerInputState
+
 
 class ActionCore(rpyc.Service):
     backend_spawn_count = 0
@@ -89,6 +89,7 @@ class ActionCore(rpyc.Service):
         self.generative_ui_objects: list[GenerativeUI] = []
 
         self.on_ready_called = False
+        self.is_removed = False
 
         self.has_configuration = False
         self.allow_event_configuration: bool = True
@@ -106,13 +107,13 @@ class ActionCore(rpyc.Service):
 
     def load_event_overrides(self):
         self.event_manager.set_overrides(self.get_event_assignments())
-        
+
     def set_deck_controller(self, deck_controller):
         """
         Internal function, do not call manually
         """
         self.deck_controller = deck_controller
- 
+
     def set_page(self, page):
         """
         Internal function, do not call manually
@@ -121,12 +122,12 @@ class ActionCore(rpyc.Service):
 
     def get_input(self) -> "ControllerInput":
         return self.deck_controller.get_input(self.input_ident)
-    
+
     def get_state(self) -> "ControllerInputState":
         i = self.get_input()
         if i is None: return
         return i.states.get(self.state)
-    
+
     def add_event_assigner(self, event_assigner: EventAssigner):
         self.event_manager.add_event_assigner(event_assigner)
 
@@ -165,9 +166,10 @@ class ActionCore(rpyc.Service):
         """
         This method gets called when the app wants the action to redraw itself (image, labels, etc.).
         """
-        self.on_ready() # backward compatibility
+        self.on_ready()  # backward compatibility
 
-    def set_media(self, image = None, media_path=None, size: float = None, valign: float = None, halign: float = None, fps: int = 30, loop: bool = True, update: bool = True):
+    def set_media(self, image=None, media_path=None, size: float = None, valign: float = None, halign: float = None,
+                  fps: int = 30, loop: bool = True, update: bool = True):
         self.raise_error_if_not_ready()
 
         if type(self.input_ident) not in [Input.Key, Input.Dial, Input.Screen]:
@@ -175,8 +177,8 @@ class ActionCore(rpyc.Service):
 
         if not self.get_is_present(): return
         if self.has_custom_user_asset(): return
-        if not self.has_image_control(): return #TODO
-        
+        if not self.has_image_control(): return  # TODO
+
         input_state = self.get_state()
 
         if input_state is None:
@@ -275,10 +277,10 @@ class ActionCore(rpyc.Service):
         except AttributeError:
             pass
 
-    def set_label(self, text: str, position: str = "bottom", color: list[int]=None,
-                  font_family: str=None, font_size=None, outline_width: int = None, outline_color: list[int] = None,
+    def set_label(self, text: str, position: str = "bottom", color: list[int] = None,
+                  font_family: str = None, font_size=None, outline_width: int = None, outline_color: list[int] = None,
                   font_weight: int = None, font_style: str = None,
-                  update: bool=True):
+                  update: bool = True):
         self.raise_error_if_not_ready()
 
         if type(self.input_ident) not in [Input.Key, Input.Dial, Input.Screen]:
@@ -287,12 +289,12 @@ class ActionCore(rpyc.Service):
         if self.get_state() is None:
             log.error(f"Could not find state, action: {self.action_id}, state: {self.state}")
             return
-        
+
         if not self.get_is_present():
             return
         if not self.on_ready_called:
             update = False
-            update = True #FIXME
+            update = True  # FIXME
 
         if font_style not in ["normal", "italic", "oblique", None]:
             raise ValueError("font_style must be one of ['normal', 'italic', 'oblique', None]")
@@ -301,7 +303,7 @@ class ActionCore(rpyc.Service):
 
         if not self.has_label_control(label_index):
             return
-        
+
         if text is None:
             text = ""
 
@@ -317,7 +319,7 @@ class ActionCore(rpyc.Service):
             "font-weight": font_weight,
             "font-style": font_style
         }
-        
+
         key_label = KeyLabel(
             controller_input=self.get_state().controller_input,
             text=text,
@@ -332,22 +334,28 @@ class ActionCore(rpyc.Service):
         self.get_state().label_manager.set_action_label(label=key_label, position=position, update=update)
 
     def set_top_label(self, text: str, color: list[int] = None,
-                      font_family: str = None, font_size = None, outline_width: int = None, outline_color: list[int] = None,
+                      font_family: str = None, font_size=None, outline_width: int = None,
+                      outline_color: list[int] = None,
                       font_weight: int = None, font_style: str = None,
                       update: bool = True):
-        self.set_label(text, "top", color, font_family, font_size, outline_width, outline_color, font_weight, font_style, update)
+        self.set_label(text, "top", color, font_family, font_size, outline_width, outline_color, font_weight,
+                       font_style, update)
 
     def set_center_label(self, text: str, color: list[int] = None,
-                      font_family: str = None, font_size = None, outline_width: int = None, outline_color: list[int] = None,
-                      font_weight: int = None, font_style: str = None,
-                      update: bool = True):
-        self.set_label(text, "center", color, font_family, font_size, outline_width, outline_color, font_weight, font_style, update)
+                         font_family: str = None, font_size=None, outline_width: int = None,
+                         outline_color: list[int] = None,
+                         font_weight: int = None, font_style: str = None,
+                         update: bool = True):
+        self.set_label(text, "center", color, font_family, font_size, outline_width, outline_color, font_weight,
+                       font_style, update)
 
     def set_bottom_label(self, text: str, color: list[int] = None,
-                      font_family: str = None, font_size = None, outline_width: int = None, outline_color: list[int] = None,
-                      font_weight: int = None, font_style: str = None,
-                      update: bool = True):
-        self.set_label(text, "bottom", color, font_family, font_size, outline_width, outline_color, font_weight, font_style, update)
+                         font_family: str = None, font_size=None, outline_width: int = None,
+                         outline_color: list[int] = None,
+                         font_weight: int = None, font_style: str = None,
+                         update: bool = True):
+        self.set_label(text, "bottom", color, font_family, font_size, outline_width, outline_color, font_weight,
+                       font_style, update)
 
     def on_labels_changed_in_ui(self):
         # TODO
@@ -355,16 +363,16 @@ class ActionCore(rpyc.Service):
 
     def get_config_rows(self) -> "list[Adw.PreferencesRow]":
         return []
-    
+
     def get_custom_config_area(self):
         return
-    
+
     def get_settings(self) -> dir:
         # self.page.load()
         if self.page is None:
             return {}
         return self.page.get_action_settings(action_object=self)
-    
+
     def set_settings(self, settings: dict):
         if self.page is None:
             return
@@ -372,16 +380,17 @@ class ActionCore(rpyc.Service):
 
     def connect(self, signal: Signal = None, callback: callable = None) -> None:
         # Connect
-        gl.signal_manager.connect_signal(signal = signal, callback = callback)
+        gl.signal_manager.connect_signal(signal=signal, callback=callback)
 
     def get_own_key(self) -> "ControllerKey":
         return self.deck_controller.keys[self.key_index]
-    
+
     def get_is_multi_action(self) -> bool:
         self.raise_error_if_not_ready()
 
         if not self.get_is_present(): return
-        actions = self.page.action_objects.get(self.input_ident.input_type, {}).get(self.input_ident.json_identifier, [])
+        actions = self.page.action_objects.get(self.input_ident.input_type, {}).get(self.input_ident.json_identifier,
+                                                                                    [])
         return len(actions) > 1
 
     def get_asset_path(self, asset_name: str, subdirs: list[str] = None, asset_folder: str = "assets") -> str:
@@ -413,36 +422,36 @@ class ActionCore(rpyc.Service):
 
     def get_translation(self, key: str, fallback: str = None):
         return self.plugin_base.locale_manager.get(key, fallback)
-    
+
     def has_label_controls(self):
         own_action_index = self.get_own_action_index()
         return [own_action_index == i for i in self.get_state().action_permission_manager.get_label_control_indices()]
-    
+
     def has_label_control(self, label_index) -> list[bool]:
-        #TODO: Might require performance improvements
-        return self.get_state().action_permission_manager.get_label_control_index(label_index) == self.get_own_action_index()
+        # TODO: Might require performance improvements
+        return self.get_state().action_permission_manager.get_label_control_index(
+            label_index) == self.get_own_action_index()
 
     def has_image_control(self):
-        #TODO: Might require performance improvements
+        # TODO: Might require performance improvements
         image_control_index = self.get_state().action_permission_manager.get_image_control_index()
         return image_control_index == self.get_own_action_index()
-
 
         key_dict = self.input_ident.get_config(self.page).get("states", {}).get(str(self.state), {})
 
         if key_dict.get("image-control-action") is None:
             return False
-        
+
         if ("image-control-action" not in key_dict) and (not self.get_is_multi_action()):
             return True
 
         return self.get_own_action_index() == key_dict.get("image-control-action")
-    
+
     def has_background_control(self):
-        #TODO: Might require performance improvements
+        # TODO: Might require performance improvements
         background_control_index = self.get_state().action_permission_manager.get_background_control_index()
         return background_control_index == self.get_own_action_index()
-    
+
     def get_is_present(self):
         if self.page is None: return False
         # Not just the active page: an action on the sticky page is present as long as its
@@ -451,12 +460,12 @@ class ActionCore(rpyc.Service):
         if self.page.deck_controller.screen_saver.showing: return False
         # if self.state != self.get_state().state: return False #TODO: Check for touchscreen and dial states
         return self in self.page.get_all_actions()
-    
+
     def has_custom_user_asset(self) -> bool:
         if not self.get_is_present(): return False
         media = self.input_ident.get_config(self.page).get("states", {}).get(str(self.state), {}).get("media", {})
         return media.get("path", None) is not None
-    
+
     def get_own_action_index(self) -> int:
         if not self.get_is_present(): return -1
         actions = self.page.get_all_actions_for_input(self.input_ident, self.state)
@@ -477,17 +486,16 @@ class ActionCore(rpyc.Service):
                 assignment[event] = event
 
         return assignment
-    
+
     def set_all_events_to_null(self):
         for input_type in self.event_manager.get_event_map().keys():
             self.set_event_assignment(input_type, None)
 
-    
     def get_event_assignments(self) -> dict[str, str]:
         return self.page.get_action_event_assignments(
             action_object=self
         )
-    
+
     def set_event_assignment(self, input_event: InputEvent | None, event_assigner: EventAssigner | None):
         self.page.set_action_event_assigment(
             event_assigner=event_assigner,
@@ -496,12 +504,12 @@ class ActionCore(rpyc.Service):
         )
 
         self.load_event_overrides()
-    
+
     def raise_error_if_not_ready(self):
         if self.on_ready_called:
             return
         raise Warning("Seems like you're calling this method before the action is ready")
-    
+
     def get_generative_ui_objects(self) -> list[GenerativeUI]:
         objects = []
         for attr in dir(self):
@@ -528,13 +536,26 @@ class ActionCore(rpyc.Service):
             widgets.append(widget)
         return widgets
 
-    def load_initial_generative_ui(self):
-        GLib.idle_add(self._do_load_initial_generative_ui)
+    def load_initial_generative_ui(self, defer: bool = True):
+        """
+        Restore all generative UI widgets from the stored settings.
+
+        defer=False runs it right away when we are on the main thread, which callers use when the
+        order relative to on_ready() matters - on_ready() populates the same widgets, and going
+        through the idle queue would make the two run in an undefined order. Off the main thread
+        the work is queued regardless: these are GTK widgets, and restoring them from a background
+        thread corrupts GTK's internal state. Queuing still keeps the relative order, because
+        on_ready() is queued after this.
+        """
+        if defer or threading.current_thread() is not threading.main_thread():
+            GLib.idle_add(self._do_load_initial_generative_ui)
+        else:
+            self._do_load_initial_generative_ui()
 
     def _do_load_initial_generative_ui(self):
         for generative_object in self.generative_ui_objects:
             generative_object.load_initial_ui()
-    
+
     # ---------- #
     # Rpyc stuff #
     # ---------- #
@@ -598,7 +619,7 @@ class ActionCore(rpyc.Service):
 
         threading.Thread(target=self.wait_for_backend, name="wait_for_backend", daemon=True).start()
 
-    def wait_for_backend(self, timeout: float = None, tries = 3):
+    def wait_for_backend(self, timeout: float = None, tries=3):
         """
         Polls for the backend connection to be established, for up to `timeout` seconds. Run in a
         background thread by `launch_backend` so it never blocks action loading - events that arrive
@@ -675,10 +696,42 @@ class ActionCore(rpyc.Service):
 
     def ping(self) -> bool:
         return True
-    
+
     def on_removed_from_cache(self) -> None:
         self.on_disconnect()
+        self.teardown()
+
+    def teardown(self) -> None:
+        """
+        Tear this action down exactly once, no matter which path removed it.
+
+        A page drops its action objects whenever it is reloaded or evicted from the page cache.
+        The object is dead from that moment on, but plugins may still have it registered with
+        their own backends (ready callbacks, entity subscriptions, timers), which keeps the dead
+        object alive and keeps feeding it events - including events that make it draw on a key it
+        no longer belongs to, or ask its former page for settings it no longer has. on_remove() is
+        the hook plugins implement for that cleanup, so it has to run here as well.
+        """
+        if self.is_removed:
+            return
+        self.is_removed = True
+
+        def call_on_remove():
+            try:
+                self.on_remove()
+            except Exception as e:
+                log.error(f"{self.action_id} - Error while removing action: {e}")
+            finally:
+                # Detached last, so the plugin can still read its settings in on_remove(). From
+                # here on get_settings() returns {} and set_settings() is a no-op, so a stale
+                # object can never write to a page it no longer belongs to.
+                self.page = None
+            return False
+
+        # Plugin cleanup regularly touches widgets while pages are reloaded from background
+        # threads, so the hook has to be dispatched to the main thread
+        GLib.idle_add(call_on_remove)
 
     def on_remove(self) -> None:
-        #TODO: Fully implement
+        # TODO: Fully implement
         pass

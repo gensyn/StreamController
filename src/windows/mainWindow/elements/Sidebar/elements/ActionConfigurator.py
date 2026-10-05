@@ -294,8 +294,11 @@ class RemoveButton(Gtk.Button):
         if load:
             page.reload_similar_pages(identifier=self.action.input_ident, reload_self=True)
 
-        # Destroy the actual action
-        if hasattr(self.action, "on_remove"):
+        # Destroy the actual action. Going through teardown() keeps this in sync with the
+        # removal the page reload above already performed, so on_remove() runs exactly once.
+        if hasattr(self.action, "teardown"):
+            self.action.teardown()
+        elif hasattr(self.action, "on_remove"):
             self.action.on_remove()
         del self.action
 
