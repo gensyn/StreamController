@@ -1,10 +1,6 @@
 from GtkHelper.ComboRow import ComboRow as Combo, BaseComboRowItem, ComboRowItem
 from GtkHelper.GenerativeUI.GenerativeUI import GenerativeUI
 
-import threading
-
-from gi.repository import GLib
-
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.backend.PluginManager.ActionCore import ActionCore
@@ -205,6 +201,7 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
     def get_item_amount(self):
         return self.widget.get_item_amount()
 
+    @GenerativeUI.signal_manager
     def populate(self, items: list[BaseComboRowItem] | list[str], selected_item: BaseComboRowItem | str = "",
                  update_settings: bool = False,
                  trigger_callback: bool = True,
@@ -212,26 +209,11 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
         """
         Repopulates the combo box with new items and optionally updates the selection.
 
-        Plugins call this from their backend threads. Refilling the model and deciding on the
-        selection has to happen as one uninterrupted step on the main thread: the decision whether
-        the requested value is a fallback reads the model back, and off the main thread those reads
-        would race with the changes queued before them and could mistake a stored value for a
-        fallback - or the other way round, and write one to the settings.
+        Refilling the model and deciding on the selection has to happen as one uninterrupted step:
+        whether the requested value is a fallback is decided by reading the model back. The
+        decorator keeps the whole method on the main thread, so those reads always see the model
+        this call just built rather than a half applied one.
         """
-        if threading.current_thread() is not threading.main_thread():
-            GLib.idle_add(
-                lambda: self._do_populate(items, selected_item, update_settings, trigger_callback,
-                                          fallback_to_first) or False
-            )
-            return
-
-        self._do_populate(items, selected_item, update_settings, trigger_callback, fallback_to_first)
-
-    @GenerativeUI.signal_manager
-    def _do_populate(self, items: list[BaseComboRowItem] | list[str], selected_item: BaseComboRowItem | str = "",
-                     update_settings: bool = False,
-                     trigger_callback: bool = True,
-                     fallback_to_first: bool = False):
         self.widget.remove_all_items()
         self.widget.add_items(items)
 
