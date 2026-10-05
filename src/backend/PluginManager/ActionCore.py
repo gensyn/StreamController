@@ -1,3 +1,4 @@
+
 """
 Author: Core447
 Year: 2024
@@ -47,14 +48,13 @@ import globals as gl
 # Import typing
 from typing import TYPE_CHECKING
 
-from src.backend.PluginManager.PluginSettings.Asset import Color, Icon
+from src.backend.PluginManager.PluginSettings.Asset import Color,Icon
 
 if TYPE_CHECKING:
     from src.backend.PluginManager.PluginBase import PluginBase
     from src.backend.DeckManagement.DeckController import DeckController, ControllerKey, ControllerKeyState
     from src.backend.PageManagement.Page import Page
     from src.backend.DeckManagement.DeckController import ControllerInput, ControllerInputState
-
 
 class ActionCore(rpyc.Service):
     backend_spawn_count = 0
@@ -88,6 +88,12 @@ class ActionCore(rpyc.Service):
 
         self.on_ready_called = False
         self.is_removed = False
+        # Settings as of the teardown, so the cleanup hook can still read them. None while alive
+        self._removed_settings: dict | None = None
+        # Last settings the page resolved for this object. Not every caller tears an action down
+        # before it swaps its action_objects, and once it has, the page can no longer resolve this
+        # object by identity - this is what the teardown snapshot falls back to in that case
+        self._last_known_settings: dict = {}
         # The single lifecycle synchronization point of this object. It guards the transition to
         # is_removed as well as every settings write, so a write is either fully done before the
         # teardown starts or does not happen at all. Reentrant because a write may reach code that
@@ -169,10 +175,9 @@ class ActionCore(rpyc.Service):
         """
         This method gets called when the app wants the action to redraw itself (image, labels, etc.).
         """
-        self.on_ready()  # backward compatibility
+        self.on_ready() # backward compatibility
 
-    def set_media(self, image=None, media_path=None, size: float = None, valign: float = None, halign: float = None,
-                  fps: int = 30, loop: bool = True, update: bool = True):
+    def set_media(self, image = None, media_path=None, size: float = None, valign: float = None, halign: float = None, fps: int = 30, loop: bool = True, update: bool = True):
         self.raise_error_if_not_ready()
 
         if type(self.input_ident) not in [Input.Key, Input.Dial, Input.Screen]:
@@ -180,7 +185,7 @@ class ActionCore(rpyc.Service):
 
         if not self.get_is_present(): return
         if self.has_custom_user_asset(): return
-        if not self.has_image_control(): return  # TODO
+        if not self.has_image_control(): return #TODO
 
         input_state = self.get_state()
 
@@ -280,10 +285,10 @@ class ActionCore(rpyc.Service):
         except AttributeError:
             pass
 
-    def set_label(self, text: str, position: str = "bottom", color: list[int] = None,
-                  font_family: str = None, font_size=None, outline_width: int = None, outline_color: list[int] = None,
+    def set_label(self, text: str, position: str = "bottom", color: list[int]=None,
+                  font_family: str=None, font_size=None, outline_width: int = None, outline_color: list[int] = None,
                   font_weight: int = None, font_style: str = None,
-                  update: bool = True):
+                  update: bool=True):
         self.raise_error_if_not_ready()
 
         if type(self.input_ident) not in [Input.Key, Input.Dial, Input.Screen]:
@@ -297,7 +302,7 @@ class ActionCore(rpyc.Service):
             return
         if not self.on_ready_called:
             update = False
-            update = True  # FIXME
+            update = True #FIXME
 
         if font_style not in ["normal", "italic", "oblique", None]:
             raise ValueError("font_style must be one of ['normal', 'italic', 'oblique', None]")
@@ -337,28 +342,22 @@ class ActionCore(rpyc.Service):
         self.get_state().label_manager.set_action_label(label=key_label, position=position, update=update)
 
     def set_top_label(self, text: str, color: list[int] = None,
-                      font_family: str = None, font_size=None, outline_width: int = None,
-                      outline_color: list[int] = None,
+                      font_family: str = None, font_size = None, outline_width: int = None, outline_color: list[int] = None,
                       font_weight: int = None, font_style: str = None,
                       update: bool = True):
-        self.set_label(text, "top", color, font_family, font_size, outline_width, outline_color, font_weight,
-                       font_style, update)
+        self.set_label(text, "top", color, font_family, font_size, outline_width, outline_color, font_weight, font_style, update)
 
     def set_center_label(self, text: str, color: list[int] = None,
-                         font_family: str = None, font_size=None, outline_width: int = None,
-                         outline_color: list[int] = None,
-                         font_weight: int = None, font_style: str = None,
-                         update: bool = True):
-        self.set_label(text, "center", color, font_family, font_size, outline_width, outline_color, font_weight,
-                       font_style, update)
+                      font_family: str = None, font_size = None, outline_width: int = None, outline_color: list[int] = None,
+                      font_weight: int = None, font_style: str = None,
+                      update: bool = True):
+        self.set_label(text, "center", color, font_family, font_size, outline_width, outline_color, font_weight, font_style, update)
 
     def set_bottom_label(self, text: str, color: list[int] = None,
-                         font_family: str = None, font_size=None, outline_width: int = None,
-                         outline_color: list[int] = None,
-                         font_weight: int = None, font_style: str = None,
-                         update: bool = True):
-        self.set_label(text, "bottom", color, font_family, font_size, outline_width, outline_color, font_weight,
-                       font_style, update)
+                      font_family: str = None, font_size = None, outline_width: int = None, outline_color: list[int] = None,
+                      font_weight: int = None, font_style: str = None,
+                      update: bool = True):
+        self.set_label(text, "bottom", color, font_family, font_size, outline_width, outline_color, font_weight, font_style, update)
 
     def on_labels_changed_in_ui(self):
         # TODO
@@ -372,9 +371,20 @@ class ActionCore(rpyc.Service):
 
     def get_settings(self) -> dir:
         # self.page.load()
+        if self._removed_settings is not None:
+            # Torn down: the page resolves settings by object identity, and it has already dropped
+            # this object, so asking it would yield {}. Answer from the snapshot taken at teardown
+            # instead - on_remove() implementations read their settings to unregister themselves
+            # (the entity a tracked callback is registered for, for example), and an empty answer
+            # would silently leave those registrations behind.
+            return self._removed_settings
         if self.page is None:
             return {}
-        return self.page.get_action_settings(action_object=self)
+
+        settings = self.page.get_action_settings(action_object=self)
+        if settings:
+            self._last_known_settings = settings
+        return settings
 
     def set_settings(self, settings: dict):
         # Held across the write, not just across the check: a page keeps its old action objects
@@ -392,7 +402,7 @@ class ActionCore(rpyc.Service):
 
     def connect(self, signal: Signal = None, callback: callable = None) -> None:
         # Connect
-        gl.signal_manager.connect_signal(signal=signal, callback=callback)
+        gl.signal_manager.connect_signal(signal = signal, callback = callback)
 
     def get_own_key(self) -> "ControllerKey":
         return self.deck_controller.keys[self.key_index]
@@ -401,8 +411,7 @@ class ActionCore(rpyc.Service):
         self.raise_error_if_not_ready()
 
         if not self.get_is_present(): return
-        actions = self.page.action_objects.get(self.input_ident.input_type, {}).get(self.input_ident.json_identifier,
-                                                                                    [])
+        actions = self.page.action_objects.get(self.input_ident.input_type, {}).get(self.input_ident.json_identifier, [])
         return len(actions) > 1
 
     def get_asset_path(self, asset_name: str, subdirs: list[str] = None, asset_folder: str = "assets") -> str:
@@ -440,14 +449,14 @@ class ActionCore(rpyc.Service):
         return [own_action_index == i for i in self.get_state().action_permission_manager.get_label_control_indices()]
 
     def has_label_control(self, label_index) -> list[bool]:
-        # TODO: Might require performance improvements
-        return self.get_state().action_permission_manager.get_label_control_index(
-            label_index) == self.get_own_action_index()
+        #TODO: Might require performance improvements
+        return self.get_state().action_permission_manager.get_label_control_index(label_index) == self.get_own_action_index()
 
     def has_image_control(self):
-        # TODO: Might require performance improvements
+        #TODO: Might require performance improvements
         image_control_index = self.get_state().action_permission_manager.get_image_control_index()
         return image_control_index == self.get_own_action_index()
+
 
         key_dict = self.input_ident.get_config(self.page).get("states", {}).get(str(self.state), {})
 
@@ -460,7 +469,7 @@ class ActionCore(rpyc.Service):
         return self.get_own_action_index() == key_dict.get("image-control-action")
 
     def has_background_control(self):
-        # TODO: Might require performance improvements
+        #TODO: Might require performance improvements
         background_control_index = self.get_state().action_permission_manager.get_background_control_index()
         return background_control_index == self.get_own_action_index()
 
@@ -502,6 +511,7 @@ class ActionCore(rpyc.Service):
     def set_all_events_to_null(self):
         for input_type in self.event_manager.get_event_map().keys():
             self.set_event_assignment(input_type, None)
+
 
     def get_event_assignments(self) -> dict[str, str]:
         return self.page.get_action_event_assignments(
@@ -631,7 +641,7 @@ class ActionCore(rpyc.Service):
 
         threading.Thread(target=self.wait_for_backend, name="wait_for_backend", daemon=True).start()
 
-    def wait_for_backend(self, timeout: float = None, tries=3):
+    def wait_for_backend(self, timeout: float = None, tries = 3):
         """
         Polls for the backend connection to be established, for up to `timeout` seconds. Run in a
         background thread by `launch_backend` so it never blocks action loading - events that arrive
@@ -729,9 +739,17 @@ class ActionCore(rpyc.Service):
                 return
             # Set before anything else, and under the same lock set_settings() holds for its whole
             # write: from here on no write can start, and any write already in progress has
-            # finished. Reads keep working until the cleanup hook detached the page, so on_remove()
-            # still sees its settings.
+            # finished.
             self.is_removed = True
+            # Taken while the page can still resolve this object. It is also what get_settings()
+            # answers from now on, so the hook sees the same settings whenever it ends up running
+            settings = {}
+            try:
+                if self.page is not None:
+                    settings = self.page.get_action_settings(action_object=self) or {}
+            except Exception as e:
+                log.error(f"{self.action_id} - Could not snapshot settings before removal: {e}")
+            self._removed_settings = dict(settings or self._last_known_settings)
 
         def call_on_remove():
             try:
@@ -739,9 +757,8 @@ class ActionCore(rpyc.Service):
             except Exception as e:
                 log.error(f"{self.action_id} - Error while removing action: {e}")
             finally:
-                # Detached last, so the plugin can still read its settings in on_remove(). From
-                # here on get_settings() returns {} and set_settings() is a no-op, so a stale
-                # object can never write to a page it no longer belongs to.
+                # The page reference is dropped so nothing can reach it through this dead object.
+                # Reads keep answering from the snapshot, writes are already refused.
                 self.page = None
             return False
 
@@ -750,5 +767,5 @@ class ActionCore(rpyc.Service):
         GLib.idle_add(call_on_remove)
 
     def on_remove(self) -> None:
-        # TODO: Fully implement
+        #TODO: Fully implement
         pass

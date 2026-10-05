@@ -58,6 +58,7 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
         self._handle_reset_button_creation()
         self.connect_signals()
 
+    @GenerativeUI.signal_manager
     def set_sensitive(self, sensitive: bool):
         self.widget.set_sensitive(sensitive)
 
@@ -146,9 +147,18 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
 
     # Widget Wrappers
 
+    @GenerativeUI.signal_manager
     def set_selected_item(self, item: BaseComboRowItem | str = "", update_setting: bool = False,
                           fallback_to_first: bool = False):
-        """Sets the selected item and optionally updates the stored value."""
+        """
+        Sets the selected item and optionally updates the stored value.
+
+        Signal managed like every other operation that changes the widget: without it the change
+        would emit notify::selected, and when the call is dispatched from another thread that
+        emission arrives after the caller is long gone - persisting a selection the user never
+        made. Off the main thread the decorator returns None, which callers already treat as
+        "nothing selected" and therefore never write.
+        """
         selected_item = self.widget.set_selected_item(item, fallback_to_first=fallback_to_first)
 
         if update_setting and selected_item is not None:
