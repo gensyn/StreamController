@@ -31,6 +31,10 @@ from loguru import logger as log
 from copy import copy
 import shutil
 
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib
+
 from numpy import isin
 
 # Import globals
@@ -70,7 +74,8 @@ class Page:
 
         # While saving is suspended, save() only remembers that a save is due. This keeps the
         # degraded intermediate state actions produce while they initialize off the disk.
-        self._save_suspend_lock = threading.Lock()
+        # Reentrant so save() can be reached from inside the lock without deadlocking
+        self._save_suspend_lock = threading.RLock()
         self._save_suspend_depth = 0
         self._save_pending = False
 
@@ -128,21 +133,27 @@ class Page:
                     raise
 
     def save(self):
+        # The suspension check and the write have to be one atomic step. Releasing the lock in
+        # between would let another thread open a suspension block and start mutating the page
+        # while this write serializes it, persisting exactly the intermediate state the suspension
+        # exists to keep off the disk.
         with self._save_suspend_lock:
             if self._save_suspend_depth > 0:
                 self._save_pending = True
                 return
 
-        self.file_access_semaphore.acquire()
-        # Make backup in case something goes wrong
-        self.make_backup()
+            self.file_access_semaphore.acquire()
+            try:
+                # Make backup in case something goes wrong
+                self.make_backup()
 
-        without_objects = self.get_without_action_objects()
-        # Make keys last element
-        for type in Input.KeyTypes:
-            self.move_key_to_end(without_objects, type)
-        atomic_save_json(self.json_path, without_objects, indent=4)
-        self.file_access_semaphore.release()
+                without_objects = self.get_without_action_objects()
+                # Make keys last element
+                for type in Input.KeyTypes:
+                    self.move_key_to_end(without_objects, type)
+                atomic_save_json(self.json_path, without_objects, indent=4)
+            finally:
+                self.file_access_semaphore.release()
 
         if self.deck_controller is not None and self.deck_controller.sticky_page is self:
             # Which inputs the sticky page takes over may have changed
@@ -649,6 +660,18 @@ class Page:
 
     @log.catch
     def initialize_actions(self):
+        # Pages are also reloaded from background threads (ActionPermissionManager.reload_pages()
+        # for example). on_ready()/on_update() end up in plugin code that touches GTK widgets, and
+        # the restore below has to run before them, so the whole sequence goes to the main loop in
+        # one piece instead of only its first step.
+        if threading.current_thread() is not threading.main_thread():
+            GLib.idle_add(self._do_initialize_actions)
+            return
+
+        self._do_initialize_actions()
+
+    @log.catch
+    def _do_initialize_actions(self):
         # Saving is suspended for the whole initialization: actions write their settings several
         # times while they set themselves up, and none of those intermediate states must reach the
         # disk. Everything is flushed once at the end.
@@ -659,10 +682,13 @@ class Page:
                     action.load_event_overrides()
                     # Deliberately synchronous and deliberately before on_ready(): on_ready()
                     # populates the very widgets this restores from the settings, so deferring one
-                    # of the two through the idle queue makes their order undefined.
+                    # of the two through the idle queue makes their order undefined. That race is
+                    # what used to let a half populated combo overwrite stored values.
                     action.load_initial_generative_ui(defer=False)
                     action.on_ready()
                     action.on_update()
+
+        return False
 
     def clear_action_objects(self):
         for input_type in self.action_objects:

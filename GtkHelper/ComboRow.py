@@ -1,38 +1,62 @@
+import functools
 import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, Gio, GObject
+from gi.repository import Gtk, Adw, Gio, GObject, GLib
 
 from loguru import logger as log
 
 _warned_off_thread_mutation: set[int] = set()
 
 
-def _warn_if_off_main_thread(combo_row: "ComboRow", what: str) -> None:
-    """
-    Complain when the list model is changed from a background thread.
-
-    An Adw.ComboRow keeps a Gtk.ListView over this model, and its item manager is not thread safe.
-    Changing the model from another thread corrupts it and aborts the process with
-    "gtk_list_tile_split: assertion failed" instead of raising anything Python can report, so the
-    offending caller is impossible to find after the fact. Warn once per widget rather than stay
-    silent - the caller has to wrap the change in GLib.idle_add.
-    """
-    if threading.current_thread() is threading.main_thread():
-        return
-
+def _warn_off_main_thread(combo_row: "ComboRow", what: str) -> None:
+    """Complain once per widget about a caller that changes the model from a background thread."""
     key = id(combo_row)
     if key in _warned_off_thread_mutation:
         return
     _warned_off_thread_mutation.add(key)
 
     log.warning(
-        f"ComboRow model changed from thread '{threading.current_thread().name}' ({what}). "
-        f"GTK widgets may only be touched from the main thread - use GLib.idle_add."
+        f"ComboRow.{what}() was called from thread '{threading.current_thread().name}'. "
+        f"GTK widgets may only be touched from the main thread; the call was moved to the main "
+        f"loop, which makes it asynchronous - wrap it in GLib.idle_add yourself."
     )
+
+
+def main_thread_only(func):
+    """
+    Run a model changing method on the GTK main thread.
+
+    An Adw.ComboRow keeps a Gtk.ListView over its model, and the list item manager behind it is not
+    thread safe. Changing the model from another thread corrupts that manager and aborts the whole
+    process with "gtk_list_tile_split: assertion failed" - an abort inside GTK, not an exception
+    Python could report, so the offending caller is impossible to find afterwards.
+
+    Warning about it is not enough, the call has to be prevented from reaching GTK off thread. It
+    is therefore queued on the main loop instead, in call order, so the model still ends up in the
+    requested state. The caller gets None back because the result cannot be known yet - callers
+    treat that as "nothing selected", which is the safe answer: a selection nobody can confirm is
+    never written to the settings.
+    """
+
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if threading.current_thread() is threading.main_thread():
+            return func(self, *args, **kwargs)
+
+        _warn_off_main_thread(self, func.__name__)
+
+        def run_on_main():
+            func(self, *args, **kwargs)
+            return False
+
+        GLib.idle_add(run_on_main)
+        return None
+
+    return wrapper
 
 
 class BaseComboRowItem(GObject.GObject):
@@ -121,7 +145,7 @@ class ComboRow(Adw.ComboRow):
         self.set_expression(Gtk.PropertyExpression.new(BaseComboRowItem, None, "filter_value"))
 
         # The constructor selects a default, not a stored user value, so falling back to the first
-        # item is fine here
+        # item is fine here - it keeps the plain widget behaving as before.
         self.populate(self.convert_item_list(items), default_selection, fallback_to_first=True)
 
     def convert_item_list(self, items):
@@ -135,6 +159,7 @@ class ComboRow(Adw.ComboRow):
 
         return converted_list
 
+    @main_thread_only
     def set_selected_item(self, item: BaseComboRowItem | str, fallback_to_first: bool = False):
         """
         Select the given item.
@@ -157,19 +182,20 @@ class ComboRow(Adw.ComboRow):
         self.set_selected(Gtk.INVALID_LIST_POSITION)
         return None
 
+    @main_thread_only
     def add_item(self, combo_row_item: BaseComboRowItem | str):
-        _warn_if_off_main_thread(self, "add_item")
         if isinstance(combo_row_item, str):
             combo_row_item = ComboRowItem(combo_row_item)
 
         self.model.append(combo_row_item)
 
+    @main_thread_only
     def add_items(self, items: list[BaseComboRowItem] | list[str]):
-        _warn_if_off_main_thread(self, "add_items")
         converted_list = self.convert_item_list(items)
 
         self.model.splice(self.model.get_n_items(), 0, converted_list)
 
+    @main_thread_only
     def remove_item_at_index(self, index: int):
         size = self.model.get_n_items()
 
@@ -179,12 +205,14 @@ class ComboRow(Adw.ComboRow):
 
         self.model.remove(index)
 
+    @main_thread_only
     def remove_item(self, item: BaseComboRowItem | str):
         for index in range(self.model.get_n_items()):
             if self.model.get_item(index) == item:
                 self.remove_item_at_index(index)
                 break
 
+    @main_thread_only
     def remove_items(self, start: int, amount: int):
         size = self.model.get_n_items()
 
@@ -195,8 +223,8 @@ class ComboRow(Adw.ComboRow):
         for i in range(amount + 1):
             self.model.remove(start)
 
+    @main_thread_only
     def remove_all_items(self):
-        _warn_if_off_main_thread(self, "remove_all_items")
         self.model.remove_all()
 
     def get_item_at(self, index: int) -> BaseComboRowItem:
@@ -222,6 +250,7 @@ class ComboRow(Adw.ComboRow):
 
         return self.get_item_at(selected_index)
 
+    @main_thread_only
     def populate(self, items: list[BaseComboRowItem], selected_item: BaseComboRowItem | str = "",
                  fallback_to_first: bool = False):
         self.remove_all_items()

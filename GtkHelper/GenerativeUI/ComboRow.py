@@ -1,8 +1,9 @@
 from GtkHelper.ComboRow import ComboRow as Combo, BaseComboRowItem, ComboRowItem
 from GtkHelper.GenerativeUI.GenerativeUI import GenerativeUI
 
-import gi
-from gi.repository import Gtk, Adw
+import threading
+
+from gi.repository import GLib
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -102,14 +103,35 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
         selected_item = self.widget.set_selected_item(self._default_value)
         if selected_item is None and self._default_value not in (None, ""):
             # The default may not be in the model - store it anyway, a reset is an explicit user
-            # action. Wrap it so callbacks always receive a BaseComboRowItem.
-            selected_item = ComboRowItem(str(self._default_value))
+            # action. Keep the declared item as it is so its get_value() is persisted; only a
+            # plain string needs wrapping so callbacks always receive a BaseComboRowItem.
+            if isinstance(self._default_value, BaseComboRowItem):
+                selected_item = self._default_value
+            else:
+                selected_item = ComboRowItem(str(self._default_value))
         self._handle_value_changed(selected_item)
 
     @GenerativeUI.signal_manager
     def load_initial_ui(self):
+        """
+        Restore the UI from the stored value.
+
+        Restoring must be strictly read-only with respect to the settings: signals are disconnected
+        so that notify::selected cannot write the restored (or a fallback) value back, and
+        _handle_value_changed() is told not to update them either. The on_change callback still
+        runs, like it does for every other generative UI element, because plugins use it to
+        initialize dependent widgets.
+        """
         value = self.get_value()
-        self.widget.set_selected_item(value)
+        selected_item = self.widget.set_selected_item(value)
+
+        if selected_item is None and value not in (None, ""):
+            # The stored value is not in the model yet - the combo is usually filled later, from a
+            # plugin backend. Report the stored value rather than None so on_change handlers see a
+            # no-op restore instead of what looks like the user clearing the selection.
+            selected_item = ComboRowItem(str(value))
+
+        self._handle_value_changed(selected_item, update_settings=False)
 
     @GenerativeUI.signal_manager
     def set_ui_value(self, value: BaseComboRowItem | str):
@@ -183,12 +205,33 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
     def get_item_amount(self):
         return self.widget.get_item_amount()
 
-    @GenerativeUI.signal_manager
     def populate(self, items: list[BaseComboRowItem] | list[str], selected_item: BaseComboRowItem | str = "",
                  update_settings: bool = False,
                  trigger_callback: bool = True,
                  fallback_to_first: bool = False):
-        """Repopulates the combo box with new items and optionally updates the selection."""
+        """
+        Repopulates the combo box with new items and optionally updates the selection.
+
+        Plugins call this from their backend threads. Refilling the model and deciding on the
+        selection has to happen as one uninterrupted step on the main thread: the decision whether
+        the requested value is a fallback reads the model back, and off the main thread those reads
+        would race with the changes queued before them and could mistake a stored value for a
+        fallback - or the other way round, and write one to the settings.
+        """
+        if threading.current_thread() is not threading.main_thread():
+            GLib.idle_add(
+                lambda: self._do_populate(items, selected_item, update_settings, trigger_callback,
+                                          fallback_to_first) or False
+            )
+            return
+
+        self._do_populate(items, selected_item, update_settings, trigger_callback, fallback_to_first)
+
+    @GenerativeUI.signal_manager
+    def _do_populate(self, items: list[BaseComboRowItem] | list[str], selected_item: BaseComboRowItem | str = "",
+                     update_settings: bool = False,
+                     trigger_callback: bool = True,
+                     fallback_to_first: bool = False):
         self.widget.remove_all_items()
         self.widget.add_items(items)
 
