@@ -128,7 +128,11 @@ class GenerativeUI[T](ABC):
         def wrapper(self, *args, **kwargs):
             if threading.current_thread() is not threading.main_thread():
                 def run_on_main():
-                    wrapper(self, *args, **kwargs)
+                    self.disconnect_signals()
+                    try:
+                        func(self, *args, **kwargs)
+                    finally:
+                        self.connect_signals()
                     return False
 
                 GLib.idle_add(run_on_main)
