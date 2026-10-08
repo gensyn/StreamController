@@ -13,6 +13,7 @@ This programm comes with ABSOLUTELY NO WARRANTY!
 You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
+import copy
 import threading
 import time
 from loguru import logger as log
@@ -377,14 +378,14 @@ class ActionCore(rpyc.Service):
             # instead - on_remove() implementations read their settings to unregister themselves
             # (the entity a tracked callback is registered for, for example), and an empty answer
             # would silently leave those registrations behind.
-            return self._removed_settings
+            return copy.deepcopy(self._removed_settings)
         if self.page is None:
             return {}
 
         settings = self.page.get_action_settings(action_object=self)
         if settings:
-            self._last_known_settings = settings
-        return settings
+            self._last_known_settings = copy.deepcopy(settings)
+        return copy.deepcopy(settings)
 
     def set_settings(self, settings: dict):
         # Held across the write, not just across the check: a page keeps its old action objects
@@ -749,7 +750,7 @@ class ActionCore(rpyc.Service):
                     settings = self.page.get_action_settings(action_object=self) or {}
             except Exception as e:
                 log.error(f"{self.action_id} - Could not snapshot settings before removal: {e}")
-            self._removed_settings = dict(settings or self._last_known_settings)
+            self._removed_settings = copy.deepcopy(settings or self._last_known_settings)
 
         def call_on_remove():
             try:
