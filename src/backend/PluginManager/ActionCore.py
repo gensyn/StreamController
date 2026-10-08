@@ -400,6 +400,10 @@ class ActionCore(rpyc.Service):
                 log.debug(f"{self.action_id}: ignoring set_settings() on a removed action")
                 return
             self.page.set_action_settings(action_object=self, settings=settings)
+            # Cache the new settings immediately: a later teardown can happen after the action was
+            # already removed from page.action_objects, and then get_settings() falls back to this
+            # last snapshot instead of the stale value from before the write.
+            self._last_known_settings = copy.deepcopy(settings)
 
     def connect(self, signal: Signal = None, callback: callable = None) -> None:
         # Connect

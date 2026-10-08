@@ -294,9 +294,11 @@ class RemoveButton(Gtk.Button):
         if load:
             page.reload_similar_pages(identifier=self.action.input_ident, reload_self=True)
 
-        # Destroy the actual action. Going through teardown() keeps this in sync with the
-        # removal the page reload above already performed, so on_remove() runs exactly once.
-        if hasattr(self.action, "teardown"):
+        # The page reload above has already dropped this object from page.action_objects, so use
+        # the full cache-removal lifecycle here to ensure backend disconnect cleanup still runs.
+        if hasattr(self.action, "on_removed_from_cache"):
+            self.action.on_removed_from_cache()
+        elif hasattr(self.action, "teardown"):
             self.action.teardown()
         elif hasattr(self.action, "on_remove"):
             self.action.on_remove()
