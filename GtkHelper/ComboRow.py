@@ -1,11 +1,10 @@
-import functools
 import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, Gio, GObject, GLib
+from gi.repository import Gtk, Adw, Gio, GObject
 
 from loguru import logger as log
 
@@ -21,40 +20,31 @@ def _warn_off_main_thread(combo_row: "ComboRow", what: str) -> None:
 
     log.warning(
         f"ComboRow.{what}() was called from thread '{threading.current_thread().name}'. "
-        f"GTK widgets may only be touched from the main thread; the call was moved to the main "
-        f"loop, which makes it asynchronous - wrap it in GLib.idle_add yourself."
+        "GTK widgets may only be touched from the main thread; call through "
+        "GenerativeUI.signal_manager so the full operation runs on the main loop."
     )
 
 
 def main_thread_only(func):
     """
-    Run a model changing method on the GTK main thread.
+    Guard model changing methods so they only run on the GTK main thread.
 
     An Adw.ComboRow keeps a Gtk.ListView over its model, and the list item manager behind it is not
     thread safe. Changing the model from another thread corrupts that manager and aborts the whole
     process with "gtk_list_tile_split: assertion failed" - an abort inside GTK, not an exception
     Python could report, so the offending caller is impossible to find afterwards.
 
-    Warning about it is not enough, the call has to be prevented from reaching GTK off thread. It
-    is therefore queued on the main loop instead, in call order, so the model still ends up in the
-    requested state. The caller gets None back because the result cannot be known yet - callers
-    treat that as "nothing selected", which is the safe answer: a selection nobody can confirm is
-    never written to the settings.
+    Dispatching from here is too late for generative UI calls because signal disconnection and
+    reconnection must be part of the same main-thread operation. Cross-thread marshaling therefore
+    happens one level up in GenerativeUI.signal_manager; this guard only blocks unsafe direct calls.
     """
 
-    @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
-        if threading.current_thread() is threading.main_thread():
-            return func(self, *args, **kwargs)
+        if threading.current_thread() is not threading.main_thread():
+            _warn_off_main_thread(self, func.__name__)
+            return None
 
-        _warn_off_main_thread(self, func.__name__)
-
-        def run_on_main():
-            func(self, *args, **kwargs)
-            return False
-
-        GLib.idle_add(run_on_main)
-        return None
+        return func(self, *args, **kwargs)
 
     return wrapper
 
