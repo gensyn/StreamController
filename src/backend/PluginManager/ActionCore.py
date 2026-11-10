@@ -382,10 +382,11 @@ class ActionCore(rpyc.Service):
         if self.page is None:
             return {}
 
+        # Returns the page's live dict, plugins rely on mutating it in place
         settings = self.page.get_action_settings(action_object=self)
         if settings:
-            self._last_known_settings = copy.deepcopy(settings)
-        return copy.deepcopy(settings)
+            self._last_known_settings = settings
+        return settings
 
     def set_settings(self, settings: dict):
         # Held across the write, not just across the check: a page keeps its old action objects
