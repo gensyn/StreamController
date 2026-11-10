@@ -97,7 +97,7 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
 
     @GenerativeUI.signal_manager
     def reset_value(self):
-        selected_item = self.widget.set_selected_item(self._default_value)
+        selected_item = self.widget.set_selected_item(self._default_value, fallback_to_first=False)
         if selected_item is None and self._default_value not in (None, ""):
             # The default may not be in the model - store it anyway, a reset is an explicit user
             # action. Keep the declared item as it is so its get_value() is persisted; only a
@@ -120,7 +120,7 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
         initialize dependent widgets.
         """
         value = self.get_value()
-        selected_item = self.widget.set_selected_item(value)
+        selected_item = self.widget.set_selected_item(value, fallback_to_first=False)
 
         if selected_item is None and value not in (None, ""):
             # The stored value is not in the model yet - the combo is usually filled later, from a
@@ -133,7 +133,7 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
     @GenerativeUI.signal_manager
     def set_ui_value(self, value: BaseComboRowItem | str):
         """Sets the selected item in the UI."""
-        self.widget.set_selected_item(value)
+        self.widget.set_selected_item(value, fallback_to_first=False)
 
     def set_value(self, item: BaseComboRowItem | str):
         """Sets the selected item in the UI."""
@@ -237,4 +237,4 @@ class ComboRow(GenerativeUI[BaseComboRowItem]):
         if selected_item is not None:
             # Re-apply the selection, the callback above may have changed it. Never re-run the
             # fallback here, that would select the first item for a value that is not in the model.
-            self.widget.set_selected_item(selected_item)
+            self.widget.set_selected_item(selected_item, fallback_to_first=False)

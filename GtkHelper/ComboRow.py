@@ -150,15 +150,14 @@ class ComboRow(Adw.ComboRow):
         return converted_list
 
     @main_thread_only
-    def set_selected_item(self, item: BaseComboRowItem | str, fallback_to_first: bool = False):
+    def set_selected_item(self, item: BaseComboRowItem | str, fallback_to_first: bool = True):
         """
         Select the given item.
 
-        If the item is not in the model the selection is cleared and None is returned instead of
-        silently falling back to the first item - a fallback selection used to be written back into
-        the action settings, which replaced stored values with whatever happened to be first.
-        Callers that want a visual fallback have to ask for it via fallback_to_first, and must never
-        persist the result.
+        If the item is not in the model the first item is selected, unless fallback_to_first is
+        False - then the selection is cleared and None is returned. Generative UI passes False: a
+        fallback selection used to be written back into the action settings, which replaced stored
+        values with whatever happened to be first.
         """
         for index in range(self.model.get_n_items()):
             if self.model.get_item(index) == item:
@@ -242,7 +241,7 @@ class ComboRow(Adw.ComboRow):
 
     @main_thread_only
     def populate(self, items: list[BaseComboRowItem], selected_item: BaseComboRowItem | str = "",
-                 fallback_to_first: bool = False):
+                 fallback_to_first: bool = True):
         self.remove_all_items()
         self.add_items(items)
         self.set_selected_item(selected_item, fallback_to_first=fallback_to_first)
