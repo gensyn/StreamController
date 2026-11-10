@@ -564,21 +564,8 @@ class ActionCore(rpyc.Service):
             widgets.append(widget)
         return widgets
 
-    def load_initial_generative_ui(self, defer: bool = True):
-        """
-        Restore all generative UI widgets from the stored settings.
-
-        defer=False runs it right away when we are on the main thread, which callers use when the
-        order relative to on_ready() matters - on_ready() populates the same widgets, and going
-        through the idle queue would make the two run in an undefined order. Off the main thread
-        the work is queued regardless: these are GTK widgets, and restoring them from a background
-        thread corrupts GTK's internal state. Queuing still keeps the relative order, because
-        on_ready() is queued after this.
-        """
-        if defer or threading.current_thread() is not threading.main_thread():
-            GLib.idle_add(self._do_load_initial_generative_ui)
-        else:
-            self._do_load_initial_generative_ui()
+    def load_initial_generative_ui(self):
+        GLib.idle_add(self._do_load_initial_generative_ui)
 
     def _do_load_initial_generative_ui(self):
         for generative_object in self.generative_ui_objects:

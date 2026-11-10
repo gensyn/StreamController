@@ -31,10 +31,6 @@ from loguru import logger as log
 from copy import copy
 import shutil
 
-import gi
-gi.require_version("Gtk", "4.0")
-from gi.repository import GLib
-
 from numpy import isin
 
 # Import globals
@@ -660,18 +656,6 @@ class Page:
 
     @log.catch
     def initialize_actions(self):
-        # Pages are also reloaded from background threads (ActionPermissionManager.reload_pages()
-        # for example). on_ready()/on_update() end up in plugin code that touches GTK widgets, and
-        # the restore below has to run before them, so the whole sequence goes to the main loop in
-        # one piece instead of only its first step.
-        if threading.current_thread() is not threading.main_thread():
-            GLib.idle_add(self._do_initialize_actions)
-            return
-
-        self._do_initialize_actions()
-
-    @log.catch
-    def _do_initialize_actions(self):
         # Saving is suspended for the whole initialization: actions write their settings several
         # times while they set themselves up, and none of those intermediate states must reach the
         # disk. Everything is flushed once at the end.
@@ -680,15 +664,9 @@ class Page:
                 if not action.on_ready_called:
                     action.on_ready_called = True
                     action.load_event_overrides()
-                    # Deliberately synchronous and deliberately before on_ready(): on_ready()
-                    # populates the very widgets this restores from the settings, so deferring one
-                    # of the two through the idle queue makes their order undefined. That race is
-                    # what used to let a half populated combo overwrite stored values.
-                    action.load_initial_generative_ui(defer=False)
+                    action.load_initial_generative_ui()
                     action.on_ready()
                     action.on_update()
-
-        return False
 
     def clear_action_objects(self):
         for input_type in self.action_objects:
